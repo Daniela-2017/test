@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 // ignore: import_of_legacy_library_into_null_safe
 import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
 
 void main() {
   runApp(MyApp());
@@ -37,7 +38,14 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  late File _image;
+  List<PickedFile>? _tempimageFileList;
+
+  set _imageFile(PickedFile? value) {
+    _tempimageFileList = value == null ? null : [value];
+  }
+
+  File? _image;
+  final picker = ImagePicker();
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -55,16 +63,8 @@ class _MyHomePageState extends State<MyHomePage> {
               child: CircleAvatar(
                 radius: 55,
                 backgroundColor: Color(0xffFDCF09),
-                child: _image != null
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(50),
-                        child: Image.file(
-                          _image,
-                          width: 100,
-                          height: 100,
-                          fit: BoxFit.fitHeight,
-                        ),
-                      )
+                child: _tempimageFileList != null
+                    ? _previewImages()
                     : Container(
                         decoration: BoxDecoration(
                             color: Colors.grey[200],
@@ -84,22 +84,59 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  _imgFromCamera() async {
-    File image = await ImagePicker.pickImage(
-        source: ImageSource.camera, imageQuality: 50);
+  Future<void> retrieveLostData() async {
+    final LostData response = await picker.getLostData();
+    if (response.isEmpty) {
+      return;
+    }
+    if (response.file != null) {
+      if (response.type == RetrieveType.image) {
+        setState(() {
+          _imageFile = response.file;
+        });
+      }
+    } else {
+      return;
+    }
+  }
 
-    setState(() {
-      _image = image;
-    });
+  Widget _previewImages() {
+    if (_tempimageFileList != null) {
+      return Semantics(
+          child: ListView.builder(
+            key: UniqueKey(),
+            itemBuilder: (context, index) {
+              // Why network for web?
+              // See https://pub.dev/packages/image_picker#getting-ready-for-the-web-platform
+              return Semantics(
+                label: 'image_picker_example_picked_image',
+                child: Image.file(_image!),
+              );
+            },
+            itemCount: _tempimageFileList!.length,
+          ),
+          label: 'image_picker_example_picked_images');
+    } else {
+      return const Text(
+        'You have not yet picked an image.',
+        textAlign: TextAlign.center,
+      );
+    }
+  }
+
+  _imgFromCamera() async {
+    print('here');
+    final pickedFile =
+        await picker.getImage(source: ImageSource.camera, imageQuality: 50);
+    _imageFile = pickedFile;
+    await _cropImage();
   }
 
   _imgFromGallery() async {
-    File image = await ImagePicker.pickImage(
-        source: ImageSource.gallery, imageQuality: 50);
-
-    setState(() {
-      _image = image;
-    });
+    final pickedFile =
+        await picker.getImage(source: ImageSource.gallery, imageQuality: 50);
+    _imageFile = pickedFile;
+    await _cropImage();
   }
 
   void _showPicker(context) {
@@ -130,5 +167,48 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           );
         });
+  }
+
+  Future<Null> _cropImage() async {
+    File? croppedFile = await ImageCropper.cropImage(
+        sourcePath: _tempimageFileList![0].path,
+        aspectRatioPresets: Platform.isAndroid
+            ? [
+                CropAspectRatioPreset.square,
+                CropAspectRatioPreset.ratio3x2,
+                CropAspectRatioPreset.original,
+                CropAspectRatioPreset.ratio4x3,
+                CropAspectRatioPreset.ratio16x9
+              ]
+            : [
+                CropAspectRatioPreset.original,
+                CropAspectRatioPreset.square,
+                CropAspectRatioPreset.ratio3x2,
+                CropAspectRatioPreset.ratio4x3,
+                CropAspectRatioPreset.ratio5x3,
+                CropAspectRatioPreset.ratio5x4,
+                CropAspectRatioPreset.ratio7x5,
+                CropAspectRatioPreset.ratio16x9
+              ],
+        androidUiSettings: AndroidUiSettings(
+            toolbarTitle: 'Cropper',
+            toolbarColor: Colors.deepOrange,
+            toolbarWidgetColor: Colors.white,
+            initAspectRatio: CropAspectRatioPreset.original,
+            lockAspectRatio: false),
+        iosUiSettings: IOSUiSettings(
+          title: 'Cropper',
+        ));
+    if (croppedFile != null) {
+      setState(() {
+        _image = croppedFile;
+      });
+    }
+  }
+
+  void _clearImage() {
+    setState(() {
+      _image = null;
+    });
   }
 }
